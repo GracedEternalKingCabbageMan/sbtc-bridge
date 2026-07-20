@@ -31,7 +31,7 @@ const STATE_PATH = process.env.SBTC_BRIDGE_STATE || join(HERE, 'state.json');
 
 // ---- config -----------------------------------------------------------------
 // config.json (see config.example.json):
-//   seq: { rpc, wallet, sbtc_asset, min_conf }              — the Sequentia (elements) node holding SBTC's reissuance token
+//   seq: { rpc, wallet, sbtc_asset, fee_asset, min_conf }   — the Sequentia node holding SBTC's reissuance token; fee_asset (USDX) pays all fees (never the Sequence token)
 //   btc: { rpc, wallet, multisig_desc, change_addr, min_conf, fee_sat_vb } — bitcoind testnet4 + the reserve multisig descriptor
 //   http: { host, port, token }
 const CFG = JSON.parse(readFileSync(CFG_PATH, 'utf8'));
@@ -109,9 +109,18 @@ async function scanPegins() {
       // crash-restart never re-credits this outpoint. (reissue+send are separate txs; the mark
       // covers the whole credit — a partial crash is reconciled by the idempotent `done` gate.)
       STATE.done[key] = 'crediting'; saveState();
-      await seqrpc('reissueasset', [SEQ.sbtc_asset, Number(btcAmt(sats))]);
+      const need = Number(btcAmt(sats));
+      // RECYCLE: spend SBTC the bridge already holds (float returned by prior peg-outs) and mint ONLY
+      // the shortfall, so supply tracks peak circulation instead of inflating on every peg-in. ALL
+      // fees are paid in SEQ.fee_asset (USDX) — the bridge never holds the Sequence token (Principle
+      // 3/4: SEQ has no privileged fee standing). reissueasset params: [asset, amount, fee_asset].
+      let held = 0; try { held = Number((await seqrpc('getbalance', []))[SEQ.sbtc_asset] || 0); } catch {}
+      const shortfall = need - held;
+      if (shortfall > 1e-8) await seqrpc('reissueasset', [SEQ.sbtc_asset, Number(shortfall.toFixed(8)), SEQ.fee_asset]);
+      // sendtoaddress params: [address, amount, comment, comment_to, subtractfee, replaceable,
+      // conf_target, estimate_mode, avoid_reuse, assetlabel, ignoreblindfail, fee_rate, fee_asset_label].
       const sendTxid = await seqrpc('sendtoaddress',
-        [bind.seq_recipient, Number(btcAmt(sats)), '', '', false, true, null, 'unset', false, SEQ.sbtc_asset]);
+        [bind.seq_recipient, need, '', '', false, true, null, 'unset', false, SEQ.sbtc_asset, true, null, SEQ.fee_asset]);
       STATE.done[key] = sendTxid; saveState();
       log('PEG-IN', u.txid + ':' + u.vout, btcAmt(sats), 'BTC ->', sats, 'SBTC to', bind.seq_recipient, 'tx', sendTxid);
     } catch (e) {
@@ -158,8 +167,10 @@ async function scanPegouts() {
       const fin = await btcrpc('finalizepsbt', [processed.psbt]);
       if (!fin.complete) throw new Error('reserve release PSBT not fully signed (need more operator co-signers)');
       const releaseTxid = await btcrpc('sendrawtransaction', [fin.hex]);
-      // Burn the returned SBTC so supply == reserve.
-      try { await seqrpc('destroyamount', [SEQ.sbtc_asset, Number(btcAmt(sats))]); } catch (e2) { err('SBTC burn failed (supply drift, reconcile):', e2.message); }
+      // RECYCLE (not burn): the returned SBTC stays in the bridge wallet as float for future peg-ins.
+      // We do NOT destroyamount — it cannot take a fee asset, so it would force the bridge to hold the
+      // Sequence token just to pay a burn fee. Circulating SBTC still equals reserve BTC (the held
+      // float is out of circulation); the next peg-in spends this float before minting anything new.
       STATE.done[key] = releaseTxid; saveState();
       log('PEG-OUT', u.txid + ':' + u.vout, sats, 'SBTC ->', btcAmt(sats), 'BTC to', bind.btc_dest, 'tx', releaseTxid);
     } catch (e) {

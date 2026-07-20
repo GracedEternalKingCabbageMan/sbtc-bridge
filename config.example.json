@@ -3,6 +3,7 @@
     "rpc": "http://USER:PASS@127.0.0.1:SEQ_RPC_PORT",
     "wallet": "sbtc-bridge",
     "sbtc_asset": "SBTC_ASSET_ID_HEX",
+    "fee_asset": "2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de",
     "min_conf": 1
   },
   "btc": {

@@ -34,6 +34,10 @@ const BTC_RPC = process.env.SBTC_BTC_RPC || 'http://user:pass@127.0.0.1:48332';
 const SEQ_WALLET = process.env.SBTC_SEQ_WALLET || 'sbtc-bridge';
 const BTC_WALLET = process.env.SBTC_BTC_WALLET || 'sbtc-reserve';
 const HTTP_PORT = Number(process.env.SBTC_HTTP_PORT || 9987);
+// The Sequentia asset the bridge pays its OWN network fees in (open fee market, Principle 3/4: SEQ
+// has NO privileged standing). Default USDX; the bridge holds only this + SBTC, never the Sequence
+// token. Any producer-accepted asset works. USDX testnet asset id:
+const FEE_ASSET = process.env.SBTC_FEE_ASSET || '2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de';
 
 async function rpc(url, method, params = [], wallet) {
   const base = wallet ? url.replace(/\/?$/, '') + '/wallet/' + encodeURIComponent(wallet) : url;
@@ -124,10 +128,11 @@ async function setupSbtcAsset(existing) {
 
   // Issue a REISSUABLE asset: initial supply tiny (bridge float), 1 reissuance token kept here so
   // ONLY this wallet (the bridge) can mint more. blind=false: SBTC is a transparent asset by default
-  // (matches Sequentia's transparent-by-default identity). A contract hash committing name/ticker
-  // can be added later via the registry; the on-chain issuance itself needs no contract.
-  const res = await seq('issueasset', [0.001, 1, false]);        // [assetamount, tokenamount, blind]
-  log('issued SBTC asset', res.asset, 'reissuance token', res.token, 'issuance tx', res.txid);
+  // (matches Sequentia's transparent-by-default identity). The FEE is paid in FEE_ASSET (USDX), not
+  // the Sequence token — Principle 3/4: fees work in any accepted asset, SEQ is not privileged. Params:
+  // [assetamount, tokenamount, blind, contract_hash, fee_asset].
+  const res = await seq('issueasset', [0.001, 1, false, null, FEE_ASSET]);
+  log('issued SBTC asset', res.asset, 'reissuance token', res.token, 'issuance tx', res.txid, '(fee paid in', FEE_ASSET.slice(0, 8) + '…)');
   return res.asset;
 }
 
@@ -143,6 +148,7 @@ async function main() {
   const cfg = {
     seq: {
       rpc: SEQ_RPC, wallet: SEQ_WALLET, sbtc_asset,
+      fee_asset: (existing && existing.seq && existing.seq.fee_asset) || FEE_ASSET,
       min_conf: (existing && existing.seq && existing.seq.min_conf) ?? 1,
     },
     btc: {

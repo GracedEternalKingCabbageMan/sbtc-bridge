@@ -59,10 +59,20 @@ function saveState() {
 
 // ---- JSON-RPC ---------------------------------------------------------------
 async function rpc(url, method, params = [], wallet) {
-  const base = wallet ? url.replace(/\/?$/, '') + '/wallet/' + encodeURIComponent(wallet) : url;
+  // Node's fetch (undici) refuses a URL that embeds credentials (http://user:pass@host), so pull them
+  // out into an Authorization: Basic header and use a credential-free URL.
+  const u = new URL(url);
+  const auth = (u.username || u.password)
+    ? 'Basic ' + Buffer.from(decodeURIComponent(u.username) + ':' + decodeURIComponent(u.password)).toString('base64')
+    : null;
+  u.username = ''; u.password = '';
+  const clean = u.toString().replace(/\/$/, '');
+  const base = wallet ? clean + '/wallet/' + encodeURIComponent(wallet) : clean;
+  const headers = { 'content-type': 'application/json' };
+  if (auth) headers.authorization = auth;
   const res = await fetch(base, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ jsonrpc: '1.0', id: 'sbtc-bridge', method, params }),
     signal: AbortSignal.timeout(30000),
   });

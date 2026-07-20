@@ -40,10 +40,19 @@ const HTTP_PORT = Number(process.env.SBTC_HTTP_PORT || 9987);
 const FEE_ASSET = process.env.SBTC_FEE_ASSET || '2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de';
 
 async function rpc(url, method, params = [], wallet) {
-  const base = wallet ? url.replace(/\/?$/, '') + '/wallet/' + encodeURIComponent(wallet) : url;
+  // Node's fetch refuses a URL with embedded credentials; move them to an Authorization header.
+  const u = new URL(url);
+  const auth = (u.username || u.password)
+    ? 'Basic ' + Buffer.from(decodeURIComponent(u.username) + ':' + decodeURIComponent(u.password)).toString('base64')
+    : null;
+  u.username = ''; u.password = '';
+  const clean = u.toString().replace(/\/$/, '');
+  const base = wallet ? clean + '/wallet/' + encodeURIComponent(wallet) : clean;
+  const headers = { 'content-type': 'application/json' };
+  if (auth) headers.authorization = auth;
   const res = await fetch(base, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ jsonrpc: '1.0', id: 'sbtc-setup', method, params }),
     signal: AbortSignal.timeout(60000),
   });

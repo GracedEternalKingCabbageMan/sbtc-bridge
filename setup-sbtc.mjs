@@ -161,13 +161,36 @@ async function main() {
   writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2));
   log('wrote', CFG_PATH);
 
-  console.log('\n=== add SBTC to the registry (sequentia-registry) ===');
-  console.log(JSON.stringify({
-    asset: sbtc_asset, ticker: 'SBTC', name: 'Pegged Bitcoin', precision: 8,
-    subtitle: 'BTC held 1:1 by the SBTC bridge', operator_verified: true,
-  }, null, 2));
-  console.log('\n=== price-server: SBTC tracks BTC 1:1 (add to the asset->symbol map) ===');
-  console.log(`  "${sbtc_asset}": "BTC"   # SBTC is priced exactly as BTC`);
+  // The registry entry for SBTC (operator-verified, zero-contract legacy shape, like the demo
+  // assets). SBTC is issued with no on-chain contract_hash, so it can never pass cryptographic
+  // verification; as the testnet registry operator we vouch for it directly.
+  const seedEntry = {
+    asset_id: sbtc_asset,
+    operator_verified: true,
+    contract: {
+      name: 'Pegged Bitcoin', ticker: 'SBTC', precision: 8,
+      entity: { domain: 'sequentia.io' },
+      issuer_pubkey: '020000000000000000000000000000000000000000000000000000000000000000',
+      version: 0,
+    },
+  };
+
+  // If the registry seed file is given, patch the SBTC entry in place (real asset id) so the
+  // change can be committed through git. Otherwise just print it.
+  const seedFile = process.env.SBTC_REGISTRY_SEED;
+  if (seedFile && existsSync(seedFile)) {
+    const arr = JSON.parse(readFileSync(seedFile, 'utf8'));
+    const i = arr.findIndex((e) => e && e.contract && String(e.contract.ticker).toUpperCase() === 'SBTC');
+    if (i >= 0) arr[i] = { ...arr[i], ...seedEntry }; else arr.push(seedEntry);
+    writeFileSync(seedFile, JSON.stringify(arr, null, 2) + '\n');
+    log('patched registry seed', seedFile, '(commit + redeploy the registry to serve SBTC)');
+  } else {
+    console.log('\n=== add SBTC to the registry seed (sequentia-registry/seed/legacy-assets.json) ===');
+    console.log(JSON.stringify(seedEntry, null, 2));
+  }
+
+  console.log('\n=== price-server: SBTC is priced exactly as BTC (feed_aliases in config.json) ===');
+  console.log('  "feed_aliases": { "SBTC": "tBTC" }   # the feed keys Bitcoin as tBTC');
   console.log('\nNext: start the bridge -> `node bridge.mjs`');
 }
 

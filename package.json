@@ -4,6 +4,6 @@
   "description": "Independent application-level BTC<->SBTC custody bridge for Sequentia (lock BTC in an N-of-M multisig, mint/burn the SBTC reissuable asset 1:1). NOT the consensus peg.",
   "type": "module",
   "private": true,
-  "scripts": { "start": "node bridge.mjs", "check": "node --check bridge.mjs" },
+  "scripts": { "start": "node bridge.mjs", "check": "node --check bridge.mjs", "test": "node --test 'test/**/*.test.mjs'" },
   "license": "MIT"
 }
